@@ -15,12 +15,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+//Client1 - Ponteiro para conexão do banco
 var Client1 mongo.Client
 
-// Conectar_mongo -  Conectar no banco de dados
-func Conectar_mongo() {
+// Conectarmongo -  Conectar no banco de dados
+func Conectarmongo() {
 
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	Client, err := mongo.Connect(ctx, options.Client().ApplyURI(
 		"mongodb+srv://soucer10:soucer10@cluster0.fwaym.mongodb.net/<dbname>?retryWrites=true&w=majority",
 	))
@@ -29,18 +31,21 @@ func Conectar_mongo() {
 	}
 
 	Client1 = *Client
+
 	fmt.Println("Conectado ao Banco....")
 }
 
-// Connect - responsavel pelo client
+// Token - responsavel pela autênticação
 type Token struct {
 	JWT string `json:"token"`
 }
 
+//Message =  envio de mensagens
 type Message struct {
 	Msg string `json:"message" xml:"message" form:"message" query:"message"`
 }
 
+//Login - Model user
 type Login struct {
 	Token string `json:"token" xml:"token" form:"token" query:"token"`
 	Msg   string `json:"message" xml:"message" form:"message" query:"message"`
@@ -54,7 +59,7 @@ type User struct {
 }
 
 //Include - Incluir usuário
-func (u User) Include() (bool, error, *mongo.InsertOneResult) {
+func (u User) Include() (bool, *mongo.InsertOneResult, error) {
 
 	collection := Client1.Database("Golang").Collection("Users")
 
@@ -63,47 +68,49 @@ func (u User) Include() (bool, error, *mongo.InsertOneResult) {
 	err1 := collection.FindOne(context.TODO(), filter).Decode(&dbaux)
 
 	if err1 == nil {
-		return false, errors.New("Usuário já está cadastrado"), nil
+		return false, nil, errors.New("Usuário já está cadastrado")
 	}
 
-	aux, err := collection.InsertOne(context.TODO(), u)
+	aux1, err := collection.InsertOne(context.TODO(), u)
 
 	if err != nil {
 
-		return false, errors.New("Erro...."), nil
+		return false, nil, errors.New("Erro")
 
 	}
-	return true, nil, aux
+	return true, aux1, nil
 }
 
-func (u User) Logon() (bool, error, *mongo.SingleResult) {
+//Logon realiza o login
+func (u User) Logon() (bool, *mongo.SingleResult, error) {
 
-	collection := Client1.Database("Golang").Collection("Users")
+	collection1 := Client1.Database("Golang").Collection("Users")
 	var dbaux User
 	filter := bson.D{{"email", u.Email}}
 
-	err := collection.FindOne(context.TODO(), filter).Decode(&dbaux)
+	err := collection1.FindOne(context.TODO(), filter).Decode(&dbaux)
 	if err != nil {
 
-		return false, errors.New("Usuário não encontrado! \n"), nil
+		return false, nil, errors.New("Usuário não encontrado")
 	}
 
 	err1 := bcrypt.CompareHashAndPassword([]byte(dbaux.Password), []byte(u.Password))
 	if err1 != nil {
 
-		return false, errors.New("Senha está errada!\n"), nil
+		return false, nil, errors.New("Senha está errada")
 	}
-	aux := collection.FindOne(context.TODO(), filter)
-	return true, nil, aux
+	aux := collection1.FindOne(context.TODO(), filter)
+	return true, aux, nil
 }
 
+//CreateToken - Criação do Token
 func (u User) CreateToken(b bson.Raw) (string, error) {
-	var err error
+
 	//Creating Access Token
-	os.Setenv("ACCESS_SECRET", "jdnfksdmfksd") //this should be in an env file
+
 	atClaims := jwt.MapClaims{}
 	atClaims["authorized"] = true
-	atClaims["user_id"] = b
+	atClaims["user_id"] = b.String()
 	atClaims["exp"] = time.Now().Add(time.Minute * 24 * 60).Unix()
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
 	token, err := at.SignedString([]byte(os.Getenv("ACCESS_SECRET")))
